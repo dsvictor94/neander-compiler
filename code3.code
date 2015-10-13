@@ -1,4 +1,4 @@
-A 1
+A 247
 B 2
 C 3
 D 32
@@ -7,9 +7,12 @@ F 6
 
 X 0
 I 0
+T1 0
 T2 0
 T3 0
 T4 0
+FLAG 0
+FLAG2 0
 
 c1 1
 cm1 255
@@ -18,15 +21,24 @@ cm1 255
         STA I
 :loop   JZ skip
         LDA C
-        ADD T2
-        STA T2
+        ADD T1
+        STA T1
         LDA I
         ADD cm1
         STA I
         JMP loop
-:skip   LDA T2
+:skip   LDA T1
         ADD A
-        STA T2
+        STA T1  #numerador
+	JN invN
+	STA T2
+	JMP mul2
+:invN   NOT
+	ADD cm1
+	STD T2
+	LDA cm1
+        STA FLAG2
+
 
 :mul2   LDA E
         STA I
@@ -42,13 +54,25 @@ cm1 255
         NOT
         ADD c1
         ADD D
-        STA T3
+        STA T3     #denominador computado
+	STA T4
+	JN ligaF   #se negativo, liga a flag e divide
         NOT
         ADD c1
         STA T4
-
+    	JMP div
+      
+:inv	NOT
+	ADD c1
+	STA T4
+	LDA cm1
+	STA FLAG
+	
+:ligaF  LDA cm1
+	STA FLAG
 :div    LDA T2
-:loop3  JN skip3
+:loop3  JZ skip4   #quando zero, não dimunui 1
+        JN skip3
         ADD T4
         STA T2
         LDA X
@@ -58,5 +82,19 @@ cm1 255
         JMP loop3
 :skip3  LDA X
         ADD cm1
-        STA X
-HLT
+:skip4  STA X
+	LDA FLAG 
+	JZ checkn     #se denomidanro positivo
+	LDA X
+	NOT
+	ADD c1
+	STA X
+:checkn
+	LDA FLAG2 
+	JZ end     #se numerador positivo	
+	LDA X
+	NOT
+	ADD c1
+	STA X
+:end 
+	HLT
