@@ -47,7 +47,7 @@ def tokenize(code):
         ('NUMBER', r'(([0-9]+)|(0x[0-9A-F]+))'),
         ('MODIFIER', r'((\.)|(:))'),
         ('NEWLINE', r'\n'),
-        ('SKIP', r'[ \t]+'),
+        ('SKIP', r'([ \t]+)|(#.*\n)'),
         ('MISMATCH',r'.')
     ]
     tok_regex = '|'.join('(?P<%s>%s)' % pair for pair in token_spec)
@@ -245,6 +245,8 @@ class Compiler(NodeVisitor):
             lambda ins: ins(self.lookup) if isinstance(ins, collections.Callable) else ins,
             instructions)
 
+        for k, l in self.lookup.items():
+            print("{}\t\t{}".format(k, l[0]))
         instr = bytes(self.code_offset*2)+b''.join(instructions)
         data = bytes(self.data_offset*2-len(instr))+b''.join(data)
         return magic_number+instr+data
@@ -307,4 +309,4 @@ if __name__ == "__main__":
         if args.debug:
             print(Prettifier().visit(ast))
         with args.output_file as output_file:
-            output_file.write(Compiler().visit(ast))
+            output_file.write(Compiler(args.code_offset, args.data_offset).visit(ast))
