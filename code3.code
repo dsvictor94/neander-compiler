@@ -1,0 +1,62 @@
+A 1
+B 2
+C 3
+D 32
+E 5
+F 6
+
+X 0
+I 0
+T2 0
+T3 0
+T4 0
+
+c1 1
+cm1 255
+
+:mul    LDA B
+        STA I
+:loop   JZ skip
+        LDA C
+        ADD T2
+        STA T2
+        LDA I
+        ADD cm1
+        STA I
+        JMP loop
+:skip   LDA T2
+        ADD A
+        STA T2
+
+:mul2   LDA E
+        STA I
+:loop2  JZ skip2
+        LDA F
+        ADD T3
+        STA T3
+        LDA I
+        ADD cm1
+        STA I
+        JMP loop2
+:skip2  LDA T3
+        NOT
+        ADD c1
+        ADD D
+        STA T3
+        NOT
+        ADD c1
+        STA T4
+
+:div    LDA T2
+:loop3  JN skip3
+        ADD T4
+        STA T2
+        LDA X
+        ADD c1
+        STA X
+        LDA T2
+        JMP loop3
+:skip3  LDA X
+        ADD cm1
+        STA X
+HLT

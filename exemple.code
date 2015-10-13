@@ -1,0 +1,18 @@
+A 1
+B 2
+C 0
+
+:inicio LDA B
+        NOT
+        ADD .1
+        ADD A
+        JN saveB
+        JMP saveA
+
+:saveB  LDA B
+        STA C
+        HLT
+
+:saveA  LDA A
+        STA C
+        HLT

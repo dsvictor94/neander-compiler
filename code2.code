@@ -1,0 +1,10 @@
+A 246
+B 0
+C 0
+:inicio LDA A
+        JN neg
+        STA B
+        HLT
+:neg    STA C
+        HLT
+        
