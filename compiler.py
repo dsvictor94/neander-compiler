@@ -45,9 +45,9 @@ def tokenize(code):
     token_spec = [
         ('ID', r'[a-zA-Z_][a-zA-Z_0-9]*'),
         ('NUMBER', r'(([0-9]+)|(0x[0-9A-F]+))'),
-        ('MODIFIER', r'((\.)|(:))'),
-        ('NEWLINE', r'\n'),
-        ('SKIP', r'([ \t]+)|(#.*\n)'),
+        ('MODIFIER', r'((\.)|(:)|(@))'),
+        ('NEWLINE', r'(#.*?)?\n'),
+        ('SKIP', r'([ \t]+)'),
         ('MISMATCH',r'.')
     ]
     tok_regex = '|'.join('(?P<%s>%s)' % pair for pair in token_spec)
@@ -94,12 +94,14 @@ class Parser(object):
             tk = tks.lookahead()
             if tk.typ == 'ID':
                 intructions.append(self.parse_assignment())
-            elif tk.typ == 'MODIFIER':
+            elif tk.typ == 'MODIFIER' and tk.value == ':':
                 intructions.append(self.parse_label())
+            elif tk.typ == 'MODIFIER' and tk.value =='@':
+                intructions.append(self.parse_declare())
             elif tk.typ == 'MNEMONIC':
                 intructions.append(self.parse_mnemonic())
             else:
-                raise ParseError(tk, "ID, MODIFIER or MNEMONIC")
+                raise ParseError(tk, "ID, ':', '@' or MNEMONIC")
         return Node('PROGRAM', intructions)
 
     def parse_assignment(self):
@@ -130,6 +132,22 @@ class Parser(object):
         else:
             raise ParseError(tk, "':'")
 
+    def parse_declare(self):
+        tk = self.tokens.next()
+        if tk.typ == 'MODIFIER' and tk.value == '@':
+            var = self.tokens.next()
+            if var.typ == 'ID':
+                value = self.tokens.next()
+                if value.typ == "NUMBER":
+                    return Node('DECLARE', [var, value])
+                elif value.typ == "ID":
+                    return Node('DECLARE', [var, value])
+                else:
+                    raise ParseError(value, "NUMBER or ID")
+            else:
+                raise ParseError(tk, "'ID'")
+        else:
+            raise ParseError(tk, "'@'")
 
     def parse_address(self):
         tk = self.tokens.next()
@@ -140,18 +158,27 @@ class Parser(object):
             if value.typ == 'NUMBER':
                 return Node('ADDRESS', [Node('VALUE', [value])])
             else:
-                raise ParseError(tk, "NUMBER")
+                raise ParseError(value, "NUMBER")
+        elif tk.typ == 'MODIFIER' and tk.value == '@':
+            ident = self.tokens.next()
+            if ident.typ == 'ID':
+                return Node('ADDRESS', [Node('USAGE', [ident])])
+            else:
+                raise ParseError(ident, "ID")
         else:
             raise ParseError(tk, "ID or '.'")
 
 class NodeVisitor:
     stack = []
     def genvisit(self, node):
-        name = "visit_"+node.typ
-        result = getattr(self, name)(node)
+        result = self.rule(node)
         if isinstance(result, types.GeneratorType):
             result = yield from result
         return result
+
+    def rule(self, node):
+        name = "visit_"+node.typ
+        return getattr(self, name)(node)
 
     def visit(self, node):
         stack = [self.genvisit(node)]
@@ -172,56 +199,17 @@ class Prettifier(NodeVisitor):
         padding = amount * ch
         return padding + ('\n'+padding).join(text.split('\n'))
 
-    def visit_PROGRAM(self, node):
-        result = "PROGRAM\n"
+    def rule(self, node):
+        return self.pretty(node)
+
+    def pretty(self, node):
+        if isinstance(node, Token):
+            return str(node)
+        result = node.typ+"\n"
         for stm in node.nodes:
             stm = yield stm
             result += self.indent(stm, 3)+"\n"
         return result
-
-    def visit_ASSIGMENT(self, node):
-        result = "ASSIGMENT\n"
-        for stm in node.nodes:
-            stm = yield stm
-            result += self.indent(stm, 3)+"\n"
-        return result
-
-    def visit_INSTRUCTION(self, node):
-        result = "INSTRUCTION\n"
-        for stm in node.nodes:
-            stm = yield stm
-            result += self.indent(stm, 3)+"\n"
-        return result
-
-    def visit_LABEL(self, node):
-        result = "LABEL\n"
-        for stm in node.nodes:
-            stm = yield stm
-            result += self.indent(stm, 3)+"\n"
-        return result
-
-    def visit_ADDRESS(self, node):
-        result = "ADDRESS\n"
-        for stm in node.nodes:
-            stm = yield stm
-            result += self.indent(stm, 3)+"\n"
-        return result
-
-    def visit_VALUE(self, node):
-        result = "VALUE\n"
-        for stm in node.nodes:
-            stm = yield stm
-            result += self.indent(stm, 3)+"\n"
-        return result
-
-    def visit_ID(self, node):
-        return str(node)
-
-    def visit_NUMBER(self, node):
-        return str(node)
-
-    def visit_MNEMONIC(self, node):
-        return str(node)
 
 class Compiler(NodeVisitor):
 
@@ -232,6 +220,8 @@ class Compiler(NodeVisitor):
         self.lookup = {}
         self.code_line = code_offset
         self.data_line = data_offset
+
+        self.lookup_default = {}
 
     def visit_PROGRAM(self, node):
         magic_number = b'\x03NDR'
@@ -245,8 +235,13 @@ class Compiler(NodeVisitor):
             lambda ins: ins(self.lookup) if isinstance(ins, collections.Callable) else ins,
             instructions)
 
+        print("VARIABLE VALUES\t")
         for k, l in self.lookup.items():
-            print("{}\t\t{}".format(k, l[0]))
+            print("\t{}\t\t{}".format(k, l(self.lookup)[0] if isinstance(l, collections.Callable) else l[0]))
+        print("DEFAULT VALUES\t")
+        for k, l in self.lookup_default.items():
+            print("\t{}\t\t{}".format(k, l(self.lookup)[0] if isinstance(l, collections.Callable) else l[0]))
+
         instr = bytes(self.code_offset*2)+b''.join(instructions)
         data = bytes(self.data_offset*2-len(instr))+b''.join(data)
         return magic_number+instr+data
@@ -258,12 +253,9 @@ class Compiler(NodeVisitor):
             self.lookup[ident] = bytes([self.data_line, 0])
             self.data_line+=1
             return [], [bytes([int(value.value, base=0), 0])]
-        elif value.value in self.lookup:
-            self.lookup[ident] = self.lookup[value.value]
+        elif value.typ == 'ID':
+            self.lookup[ident] = lambda lt: lt[value.value]
             return [], []
-        else:
-            raise RuntimeError("Impossible reference '{}'. Variable not defined yet.".format(value.value))
-
 
     def visit_INSTRUCTION(self, node):
         mne = node.nodes[0].value
@@ -279,6 +271,14 @@ class Compiler(NodeVisitor):
         self.lookup[ident] = bytes([self.code_line, 0])
         return [], []
 
+    def visit_DECLARE(self, node):
+        ident, value = node.nodes
+        if value.typ == 'NUMBER':
+            self.lookup_default[ident.value] = bytes([int(value.value, base=0), 0])
+        elif value.typ == 'ID':
+            self.lookup_default[ident.value] = lambda lt: lt[value.value]
+        return [], []
+
     def visit_ADDRESS(self, node):
         addr = node.nodes[0]
         if addr.typ == 'ID':
@@ -292,16 +292,24 @@ class Compiler(NodeVisitor):
         self.data_line+=1
         return [bytes([line, 0])], [bytes([int(val, base=0), 0])]
 
+    def visit_USAGE(self, node):
+        ident = node.nodes[0].value
+        val = self.lookup_default[ident]
+        self.lookup[ident] = bytes([self.code_line, 0])
+        return [val], []
+
 if __name__ == "__main__":
-    import argparse
+    import argparse, sys, codecs
     p = argparse.ArgumentParser()
     p.add_argument('input_file', type=argparse.FileType('r'))
-    p.add_argument('output_file', type=argparse.FileType('wb'))
+    p.add_argument('output_file', nargs='?', type=argparse.FileType('wb'), default=sys.stdout)
     p.add_argument('--code_offset', type=int, default=0)
     p.add_argument('--data_offset', type=int, default=128)
+    p.add_argument('--hex', action='store_true')
     p.add_argument('--debug', action='store_true')
     args = p.parse_args()
-
+    if args.output_file == sys.stdout:
+        args.hex = True
     with args.input_file as input_file:
         code = input_file.read()
         tks = tokenize(code)
@@ -309,4 +317,7 @@ if __name__ == "__main__":
         if args.debug:
             print(Prettifier().visit(ast))
         with args.output_file as output_file:
-            output_file.write(Compiler(args.code_offset, args.data_offset).visit(ast))
+            output = Compiler(args.code_offset, args.data_offset).visit(ast)
+            if args.hex:
+                output = '\n\n'+codecs.encode(output, 'hex').decode('ascii')+'\n\n'
+            output_file.write(output)

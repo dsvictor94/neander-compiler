@@ -1,0 +1,24 @@
+@A start #declare A with default value 30
+c1 1
+B 20
+       LDA B
+:start ADD c1
+       ADD c1
+       ADD c1
+       ADD c1
+       ADD c1
+       ADD c1
+       ADD c1
+:end   ADD c1
+       STA B
+       LDA A
+       ADD .2
+       STA A
+       NOT
+       ADD c1
+       ADD end
+       JN stop
+       LDA B
+       JMP @A #use with '@' define the storage place to here
+
+:stop  HLT
